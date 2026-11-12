@@ -13,37 +13,38 @@ from pathlib import Path
 import mss
 import numpy as np
 
-from launch import (ROOT, find_windows, fix_console, is_admin, load_config,
-                    relaunch_elevated, window_spec)
+from launch import ROOT, find_windows, fix_console, load_config, window_spec
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 
 SW_RESTORE = 9
 
 
-def focus(hwnd: int, wait: float = 0.3) -> bool:
+def focus(hwnd: int, wait: float = 0.3, tries: int = 3) -> bool:
     """把窗口提到前台（mss 抓的是屏幕，被别的窗口盖住就抓到别人）。
 
     SetForegroundWindow 有「前台锁」：不是当前前台进程调它只会闪任务栏。
     标准绕法是把自己 attach 到前台窗口的输入队列再抢。返回是否真的抢到了。
+    用户一直在别的软件里点鼠标时，抢到也会被立刻抢回去，所以重试几次。
     """
     if user32.IsIconic(hwnd):
         user32.ShowWindow(hwnd, SW_RESTORE)
-    if user32.GetForegroundWindow() == hwnd:
-        return True
-    fg = user32.GetForegroundWindow()
-    tid_fg = user32.GetWindowThreadProcessId(fg, None)
-    tid_me = kernel32.GetCurrentThreadId()
-    attached = bool(user32.AttachThreadInput(tid_me, tid_fg, True))
-    try:
-        user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
-    finally:
-        if attached:
-            user32.AttachThreadInput(tid_me, tid_fg, False)
-    time.sleep(wait)
+        time.sleep(0.2)
+    for attempt in range(tries):
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+        fg = user32.GetForegroundWindow()
+        tid_fg = user32.GetWindowThreadProcessId(fg, None)
+        tid_me = kernel32.GetCurrentThreadId()
+        attached = bool(user32.AttachThreadInput(tid_me, tid_fg, True))
+        try:
+            user32.BringWindowToTop(hwnd)
+            user32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                user32.AttachThreadInput(tid_me, tid_fg, False)
+        time.sleep(wait if attempt == tries - 1 else 0.15)
     return user32.GetForegroundWindow() == hwnd
 
 
@@ -81,61 +82,6 @@ def grab(hwnd: int) -> tuple[np.ndarray, dict]:
     return np.asarray(raw)[:, :, :3].copy(), box
 
 
-class _BITMAPINFOHEADER(ctypes.Structure):
-    _fields_ = [("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
-                ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
-                ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
-                ("biSizeImage", wintypes.DWORD), ("biXPelsPerMeter", wintypes.LONG),
-                ("biYPelsPerMeter", wintypes.LONG), ("biClrUsed", wintypes.DWORD),
-                ("biClrImportant", wintypes.DWORD)]
-
-
-class _BITMAPINFO(ctypes.Structure):
-    _fields_ = [("bmiHeader", _BITMAPINFOHEADER), ("bmiColors", wintypes.DWORD * 3)]
-
-
-PW_RENDERFULLCONTENT = 0x00000002
-
-
-def grab_background(hwnd: int) -> tuple[np.ndarray, dict]:
-    """不抢前台的抓法：PrintWindow 让窗口把自己画到内存 DC 上。
-
-    用途：用户在用别的软件（剪映之类）时也能看游戏，不夺焦点、不把游戏顶到最前。
-    代价：个别 D3D 独占全屏的窗口会返回黑帧，所以要检查。
-    """
-    box = client_rect(hwnd)
-    w, h = box["width"], box["height"]
-    if w <= 0 or h <= 0:
-        raise RuntimeError(f"客户区尺寸异常：{box}（窗口可能最小化了）")
-
-    hdc = user32.GetDC(hwnd)
-    if not hdc:
-        raise OSError(ctypes.get_last_error(), "GetDC(hwnd) 失败")
-    mem = gdi32.CreateCompatibleDC(hdc)
-    bmp = gdi32.CreateCompatibleBitmap(hdc, w, h)
-    old = gdi32.SelectObject(mem, bmp)
-    try:
-        ok = user32.PrintWindow(hwnd, mem, PW_RENDERFULLCONTENT)
-        bmi = _BITMAPINFO()
-        bmi.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
-        bmi.bmiHeader.biWidth = w
-        bmi.bmiHeader.biHeight = -h
-        bmi.bmiHeader.biPlanes = 1
-        bmi.bmiHeader.biBitCount = 32
-        bmi.bmiHeader.biCompression = 0
-        buf = ctypes.create_string_buffer(w * h * 4)
-        lines = gdi32.GetDIBits(mem, bmp, 0, h, buf, ctypes.byref(bmi), 0)
-        if lines != h:
-            raise OSError(ctypes.get_last_error(), f"GetDIBits 只拿到 {lines} 行")
-        img = np.frombuffer(buf, np.uint8).reshape(h, w, 4)[:, :, :3].copy()
-    finally:
-        gdi32.SelectObject(mem, old)
-        gdi32.DeleteObject(bmp)
-        gdi32.DeleteDC(mem)
-        user32.ReleaseDC(hwnd, hdc)
-    return img, {**box, "printwindow_ok": bool(ok)}
-
-
 def find_game_window() -> tuple[int, str]:
     cfg = load_config()
     title, process = window_spec(cfg)
@@ -153,24 +99,13 @@ def main(argv: list[str]) -> int:
     if "--out" in argv:
         out = Path(argv[argv.index("--out") + 1])
 
-    bg = "--bg" in argv or "--background" in argv
-    if "--elevated" in argv and not is_admin():
-        # 游戏是提权进程，非提权的 PrintWindow 会被 UIPI 挡掉（拿回黑帧），所以要升权再抓
-        return relaunch_elevated(Path(__file__).resolve(), argv, ROOT / "logs" / "capture.log")
-
     hwnd, text = find_game_window()
-    if bg:
-        img, box = grab_background(hwnd)
-        blank = float(img.mean()) < 1.0
-        if blank:
-            print("警告：PrintWindow 拿回来是黑帧（独占全屏/D3D 后端不响应），只能退回前台抓")
-    else:
-        if "--no-focus" not in argv:
-            if focus(hwnd):
-                print("已把游戏窗口提到前台")
-            else:
-                print("警告：没抢到前台，这一帧可能是别的窗口（mss 抓的是屏幕，不是窗口内容）")
-        img, box = grab(hwnd)
+    if "--no-focus" not in argv:
+        if focus(hwnd):
+            print("已把游戏窗口提到前台")
+        else:
+            print("警告：没抢到前台，这一帧可能是别的窗口（mss 抓的是屏幕，不是窗口内容）")
+    img, box = grab(hwnd)
     out.parent.mkdir(parents=True, exist_ok=True)
     if not _imwrite_unicode(out, img):
         raise SystemExit(f"写文件失败：{out}")
