@@ -1,0 +1,33 @@
+{
+  "_comment": "300-hero-agent 运行期配置。只放本项目用得到的值；凭据不进来。坐标一律存相对比例，不存绝对像素。",
+  "game": {
+    "window": {
+      "_comment": "主判据是进程名，标题只当兜底：加载时标题是「300英雄」，之后会变成活动标题那串长文字。",
+      "title": "300英雄",
+      "process": "300.exe"
+    },
+    "launch": {
+      "enabled": true,
+      "elevate": true,
+      "method": "official",
+      "wait_seconds": 150,
+      "poll_seconds": 1.0,
+      "methods": {
+        "official": {
+          "desc": "官方：直接起客户端。300.exe 清单是 requireAdministrator，必须提权，非提权 Popen 会 WinError 740。",
+          "exe": "E:\\Game\\JumpGame\\300Hero\\300.exe",
+          "args": [],
+          "cwd": "E:\\Game\\JumpGame\\300Hero",
+          "verified": "2026-11-13 实测：走 UAC 提权后窗口「300英雄」起来了，宿主进程名是 launcher"
+        },
+        "box": {
+          "desc": "盒子：KunLauncher。注意目录里那个 run KunLauncher.exe with path.bat 是 0 字节空文件，跑它什么都不会发生。",
+          "exe": "E:\\Game\\JumpGame\\300新BOX\\Kun new\\KunLauncher.exe",
+          "args": ["E:\\Game\\JumpGame\\300Hero\\300.exe"],
+          "cwd": "E:\\Game\\JumpGame\\300新BOX\\Kun new",
+          "verified": "未验证：参数形式是按 exe 名字猜的（with path），首次用前要先确认"
+        }
+      }
+    }
+  }
+}
