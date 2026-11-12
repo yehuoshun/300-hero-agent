@@ -30,8 +30,17 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
 def fix_console() -> None:
-    """对齐控制台编码：Windows 默认 GBK，Python 若按 UTF-8 输出会变乱码。"""
+    """对齐控制台编码：Windows 默认 GBK，Python 若按 UTF-8 输出会变乱码。
+
+    只在真的写控制台时改：输出被重定向到日志文件时必须保持 UTF-8，
+    否则提权子进程写出来的 logs/*.log 是一坨 GBK，读的人（和 AI）都看不懂。
+    """
     if sys.platform != "win32":
+        return
+    try:
+        if not sys.stdout.isatty():
+            return
+    except Exception:
         return
     try:
         cp = ctypes.windll.kernel32.GetConsoleOutputCP()
@@ -123,15 +132,33 @@ def _shell_execute_runas(target: str, params: str, cwd: str) -> int:
     return int(rc)
 
 
-def relaunch_elevated(argv: list[str], log_path: Path) -> int:
-    """把自己以管理员身份重启一份（UAC 只弹一次），当前进程退出。"""
-    params = subprocess.list2cmdline([*argv, "--elevated", "--log", str(log_path)])
+def relaunch_elevated(script: Path, argv: list[str], log_path: Path) -> int:
+    """把自己以管理员身份重启一份（UAC 只弹一次），当前进程退出。
+
+    argv 只放业务参数，脚本路径单独传：早先漏了脚本路径，
+    提权后变成 `python.exe --elevated ...`，Python 会把 --elevated 当成自己的选项。
+    """
+    params = subprocess.list2cmdline([str(script), *argv, "--elevated", "--log", str(log_path)])
     rc = _shell_execute_runas(sys.executable, params, str(ROOT))
     if rc <= 32:
         print(f"提权失败（ShellExecute 返回 {rc}，1223=用户点了取消）")
         return 2
     print(f"已请求提权，UAC 弹窗里点「是」。新进程输出写到 {log_path}")
     return 0
+
+
+def strip_log_args(argv: list[str]) -> list[str]:
+    """去掉 --log <path> 这一对，提权时会重新指定。"""
+    out, skip = [], False
+    for a in argv:
+        if skip:
+            skip = False
+            continue
+        if a == "--log":
+            skip = True
+            continue
+        out.append(a)
+    return out
 
 
 def ensure_running(cfg: dict | None = None, *, dry_run: bool = False) -> dict:
@@ -208,7 +235,7 @@ def main(argv: list[str]) -> int:
         return 0 if r["hwnd"] else 1
 
     if not is_admin() and "--elevated" not in argv and cfg["game"]["launch"].get("elevate", True):
-        return relaunch_elevated([a for a in argv if a != "--log"],
+        return relaunch_elevated(Path(__file__).resolve(), strip_log_args(argv),
                                  log_path or (ROOT / "logs" / "launch.log"))
 
     r = ensure_running(cfg)
