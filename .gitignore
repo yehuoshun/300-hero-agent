@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# 虚拟环境
+.venv/
+venv/
+
+# 临时产物（项目内临时文件一律放 tmp/，可整个删掉）
+tmp/
+
+# 运行期产物
+*.log
+logs/
+
+# 抓帧与截图不进仓库（画面里有本人账号名和其他玩家 ID）
+shots/
+frames/
