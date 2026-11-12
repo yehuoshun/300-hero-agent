@@ -19,6 +19,8 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
 KEYEVENTF_KEYUP = 0x0002
 
 # 只收这里登记过的键名：写错的键名宁可报错，也不要静默发一个奇怪的东西
@@ -56,20 +58,26 @@ def _send_mouse(flags: int) -> None:
         raise OSError(ctypes.get_last_error(), f"SendInput 失败（flags={flags:#x}）")
 
 
-def click_client(hwnd: int, xr: float, yr: float, *, hold: float = 0.05) -> dict:
-    """在客户区相对位置 (xr, yr) 点一下左键。返回实际落点，便于核对。"""
+def click_client(hwnd: int, xr: float, yr: float, *, hold: float = 0.05,
+                 button: str = "left") -> dict:
+    """在客户区相对位置 (xr, yr) 点一下鼠标。返回实际落点，便于核对。
+
+    button="right" 用于走位/攻击目标：300英雄 是右键移动。
+    """
+    down, up = ((MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) if button == "right"
+                else (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP))
     box = client_rect(hwnd)
     x = box["left"] + int(round(xr * box["width"]))
     y = box["top"] + int(round(yr * box["height"]))
     if not user32.SetCursorPos(x, y):
         raise OSError(ctypes.get_last_error(), "SetCursorPos 失败")
     time.sleep(0.04)
-    _send_mouse(MOUSEEVENTF_LEFTDOWN)
+    _send_mouse(down)
     time.sleep(hold)
-    _send_mouse(MOUSEEVENTF_LEFTUP)
+    _send_mouse(up)
     pt = wintypes.POINT()
     user32.GetCursorPos(ctypes.byref(pt))
-    return {"target": (x, y), "cursor": (pt.x, pt.y), "box": box}
+    return {"target": (x, y), "cursor": (pt.x, pt.y), "box": box, "button": button}
 
 
 def _send_key(vk: int, flags: int) -> None:
