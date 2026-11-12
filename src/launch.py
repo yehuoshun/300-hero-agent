@@ -96,7 +96,9 @@ def find_windows(title: str, process: str | None = None) -> list[tuple[int, str,
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
-    return json.loads(path.read_text(encoding="utf-8"))
+    # utf-8-sig：PowerShell 5.1 的 Set-Content -Encoding utf8 会写 BOM，json 会因此报
+    # "Unexpected UTF-8 BOM"。手动改这个文件时很容易踩到，所以这里直接容忍 BOM。
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
 def window_spec(cfg: dict) -> tuple[str, str]:

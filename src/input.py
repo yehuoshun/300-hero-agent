@@ -19,6 +19,12 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+KEYEVENTF_KEYUP = 0x0002
+
+# 只收这里登记过的键名：写错的键名宁可报错，也不要静默发一个奇怪的东西
+VK = {"esc": 0x1B, "enter": 0x0D, "space": 0x20, "tab": 0x09,
+      "a": 0x41, "s": 0x53, "q": 0x51, "w": 0x57, "e": 0x45, "r": 0x52,
+      "b": 0x42, "y": 0x59, "f12": 0x7B}
 
 
 class MOUSEINPUT(ctypes.Structure):
@@ -27,8 +33,13 @@ class MOUSEINPUT(ctypes.Structure):
                 ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
 
 
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD),
+                ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
+
+
 class _INPUTUNION(ctypes.Union):
-    _fields_ = [("mi", MOUSEINPUT)]
+    _fields_ = [("mi", MOUSEINPUT), ("ki", KEYBDINPUT)]
 
 
 class INPUT(ctypes.Structure):
@@ -61,6 +72,26 @@ def click_client(hwnd: int, xr: float, yr: float, *, hold: float = 0.05) -> dict
     return {"target": (x, y), "cursor": (pt.x, pt.y), "box": box}
 
 
+def _send_key(vk: int, flags: int) -> None:
+    inp = INPUT()
+    inp.type = 1  # INPUT_KEYBOARD
+    inp.ki = KEYBDINPUT(vk, 0, flags, 0, 0)
+    sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
+    if sent != 1:
+        raise OSError(ctypes.get_last_error(), f"SendInput 失败（vk={vk:#x} flags={flags:#x}）")
+
+
+def press_key(name: str, *, hold: float = 0.06) -> int:
+    """按一下键（按下+抬起）。键名必须在 VK 里登记过。"""
+    vk = VK.get(name.lower())
+    if vk is None:
+        raise KeyError(f"没有登记过的键名 {name!r}；可用：{', '.join(sorted(VK))}")
+    _send_key(vk, 0)
+    time.sleep(hold)
+    _send_key(vk, KEYEVENTF_KEYUP)
+    return vk
+
+
 def main(argv: list[str]) -> int:
     log_path = None
     if "--log" in argv:
@@ -91,25 +122,51 @@ def main(argv: list[str]) -> int:
     if not focus(hwnd):
         print("警告：没抢到前台，点击可能落到别的窗口上")
 
-    name = argv[argv.index("--click") + 1] if "--click" in argv else None
-    if name:
-        point = cfg["ui"].get(name)
-        if point is None:
-            print(f"config.json 的 ui 里没有 {name!r}")
-            return 2
-        r = click_client(hwnd, point[0], point[1])
-        print(f"点击 {name} 相对={point} → 屏幕{(r['target'])} 光标{(r['cursor'])}")
+    # 动作按命令行出现顺序执行：--click <ui键> / --key <键名> / --wait <秒>；最后可选 --shot。
+    # 一次提权跑一串动作，省掉多次 UAC。
+    actions: list[tuple[str, object]] = []
+    shot = None
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--click":
+            actions.append(("click", argv[i + 1]))
+            i += 2
+        elif a == "--key":
+            actions.append(("key", argv[i + 1]))
+            i += 2
+        elif a == "--wait":
+            actions.append(("wait", float(argv[i + 1])))
+            i += 2
+        elif a == "--shot":
+            shot = Path(argv[i + 1])
+            i += 2
+        else:
+            i += 1
+
+    for kind, arg in actions:
+        if kind == "wait":
+            time.sleep(float(arg))
+        elif kind == "click":
+            point = cfg["ui"].get(arg)
+            if point is None:
+                print(f"config.json 的 ui 里没有 {arg!r}")
+                return 2
+            r = click_client(hwnd, point[0], point[1])
+            print(f"点击 {arg} 相对={point} → 屏幕{r['target']} 光标{r['cursor']}")
+        else:
+            print(f"按键 {arg}（vk={press_key(str(arg)):#x}）")
 
     settle = float(cfg.get("ui", {}).get("click_settle", 4.0))
-    if "--shot" in argv or name:
+    if shot or actions:
         time.sleep(settle)
         img, box = grab(hwnd)
-        out = Path(argv[argv.index("--shot") + 1]) if "--shot" in argv else ROOT / "tmp" / "after-click.png"
+        out = shot or ROOT / "tmp" / "after-click.png"
         out.parent.mkdir(parents=True, exist_ok=True)
         if not _imwrite_unicode(out, img):
             print(f"写文件失败：{out}")
             return 1
-        print(f"点击后截图：{out}  {img.shape[1]}x{img.shape[0]}  客户区={box}")
+        print(f"动作后截图：{out}  {img.shape[1]}x{img.shape[0]}  客户区={box}")
     return 0
 
 
