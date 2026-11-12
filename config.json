@@ -33,6 +33,7 @@
   "ui": {
     "_comment": "点击点一律存客户区相对比例 [x, y]，0~1；换分辨率不用改。click_settle=点完等多久再截图。",
     "click_settle": 4.0,
-    "login_enter": [0.884, 0.674]
+    "login_enter": [0.884, 0.674],
+    "hall_attack": [0.895, 0.841]
   }
 }
