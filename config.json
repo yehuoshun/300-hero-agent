@@ -23,9 +23,9 @@
         "box": {
           "desc": "盒子：KunLauncher。注意目录里那个 run KunLauncher.exe with path.bat 是 0 字节空文件，跑它什么都不会发生。",
           "exe": "E:\\Game\\JumpGame\\300新BOX\\Kun new\\KunLauncher.exe",
-          "args": ["E:\\Game\\JumpGame\\300Hero\\300.exe"],
+          "args": ["E:\\Game\\JumpGame\\300Hero"],
           "cwd": "E:\\Game\\JumpGame\\300新BOX\\Kun new",
-          "verified": "未验证：参数形式是按 exe 名字猜的（with path），首次用前要先确认"
+          "verified": "未验证：用户说实际是直接跑那个 bat 启动盒子；bat 名里的 with path 暗示要带路径参数，首次用前先问"
         }
       }
     }
@@ -34,6 +34,9 @@
     "_comment": "点击点一律存客户区相对比例 [x, y]，0~1；换分辨率不用改。click_settle=点完等多久再截图。",
     "click_settle": 4.0,
     "login_enter": [0.884, 0.674],
-    "hall_attack": [0.895, 0.841]
+    "hall_attack": [0.895, 0.841],
+    "popup_close": [0.838, 0.179],
+    "settings_close": [0.807, 0.2025],
+    "mode_battlefield": [0.5195, 0.5875]
   }
 }
