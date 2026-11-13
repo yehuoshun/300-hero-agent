@@ -1,12 +1,14 @@
-"""最小闭环：抓帧 → 找敌方红血条 → 右键过去打 / 放技能；F12 急停。
+"""最小闭环：抓帧 → 读自己血量 → 找敌方红血条 → 右键过去打 / 放技能；F12 急停。
 
 只用眼睛和手：不读内存、不注入 DLL、不改客户端。
 这一步的策略还非常粗糙，目标是先让「看→动」这条线跑通：
+- 每拍先读自身血量（底部中央绿条，见 perceive.self_hp），写进日志
 - 视野里有红血条 → 右键点最近的那条（300英雄 右键＝移动/攻击）
-- 视野里没有 → 右键点屏幕右侧一带，往敌方方向推
-- 贴脸时按 w / q（没命中、没冷却也不亏）
+- 贴脸且血够 → 按 w / q
+- 读不到血量（＝已死或不在对局）→ 这一拍不动，只记录
+- 视野里没有敌 → 右键点屏幕右侧一带，往敌方方向推
 
-已知不够用的地方（下次改）：自己血量读不出、不知道敌我在哪、不看小地图。
+已知不够用的地方（下次改）：不知道敌我在哪、不看小地图、血少了还不会往回跑。
 """
 from __future__ import annotations
 
@@ -22,9 +24,11 @@ from capture import _imwrite_unicode, focus, grab
 from input import click_client, press_key
 from launch import (ROOT, find_windows, fix_console, is_admin, load_config,
                     relaunch_elevated, strip_log_args, window_spec)
+from perceive import self_hp, self_position
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 VK_F12 = 0x7B
+LOW_HP = 0.25          # 低于这个比例就不再贴脸（策略里唯一用到血量的地方）
 
 
 def emergency_stopped() -> bool:
@@ -103,19 +107,32 @@ def main(argv: list[str]) -> int:
             break
         frame, _box = grab(hwnd)
         fh, fw = frame.shape[:2]
+        hp = self_hp(frame)
+        px, py = self_position(frame)
+        hp_txt = "?" if hp["ratio"] is None else f"{hp['ratio']:.2f}"
+        # 已死（读不到血量）时不做决定，只记录；复活后血量会自己回来
+        dead = hp["ratio"] is None
         bars = find_red_bars(frame)
         bars.sort(key=lambda b: (b["cx"] - fw / 2) ** 2 + (b["cy"] - fh / 2) ** 2)
-        if bars:
+        head = f"[{n:03d}] t={time.time() - t0:5.1f}s hp={hp_txt} 我@({px:.2f},{py:.2f}) 红条{len(bars)}"
+        if dead:
+            print(head + " 读不到血量，可能已死，本拍不动")
+        elif bars:
             t = bars[0]
             click_client(hwnd, t["cx"] / fw, (t["cy"] + 10) / fh, button="right")
             dist = abs(t["cx"] - fw / 2)
+            face = ""
             if dist < fw * 0.18:
-                press_key("w")
-                press_key("q")
-            print(f"[{n:03d}] 打 {t['w']}x{t['h']} @({t['cx']:.0f},{t['cy']:.0f}) 距中 {dist:.0f}px")
+                if hp["ratio"] < LOW_HP:
+                    face = " 血少不贴脸"
+                else:
+                    press_key("w")
+                    press_key("q")
+                    face = " 贴脸放 wq"
+            print(head + f" 打 {t['w']}x{t['h']} @({t['cx']:.0f},{t['cy']:.0f}) 距中 {dist:.0f}px" + face)
         else:
             click_client(hwnd, 0.62, 0.52, button="right")
-            print(f"[{n:03d}] 没看到红条，往右推")
+            print(head + " 没看到红条，往右推")
         n += 1
         time.sleep(0.6)
 
