@@ -126,3 +126,16 @@
 - 本机 Python 全是 32 位；先前实测可用的是 `E:\DevelopmentEnvironment\python-3.13\python.exe`
 - 依赖（旧环境实测装得上）：`mss` / `opencv-python` / `numpy` / `pydirectinput` / `pyperclip`
 - 抓图一律走 mss 抓**客户区**，坐标原点 = 客户区左上角
+
+## 截图与图片上传（内容安全）
+
+《300英雄》是二次元游戏，大厅主视觉、选英雄卡面、加载/结算原画、皮肤展示含角色立绘，部分可能不适合上传到外部模型。
+本项目自动化只需要**界面读数**，所以定死三条：
+
+1. **原始整帧只落 `tmp/raw/`**：可以本地存、可以本地算，但**永远不 `read_image`**、不进对话、不入库（`tmp/` 已被 `.gitignore` 覆盖）。
+2. **给模型看的图只从 `tmp/peek/` 出，且必须由 `tools/safeview.py` 生成**：
+   - `--mode phase,score,minimap,hud,soul` 只裁白名单读数区（阶段面板/比分/小地图/血条技能栏/灵魂面板），这些区域没有人像；
+   - 万不得已要看全场，用 `--mode wide`：整帧先按 `PORTRAIT_ZONES` 像素化人像区再降采样。
+3. **不主动截取含立绘的页面**（大厅首页、选英雄页右侧、皮肤/商城、加载与结算原画）；必须确认某一页的状态时，用 `--mode wide` 看打码版。
+
+要加新的读数区，改 `tools/safeview.py` 的 `ZONES`；要补新的立绘/广告区，改 `PORTRAIT_ZONES`，然后用 `--mode wide` 自检一遍。
