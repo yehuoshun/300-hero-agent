@@ -96,14 +96,16 @@ class Game:
                 "log_tail": self.last_log[-6:]}
 
     # ---------- 动作 ----------
-    def click(self, ui: str | None, point, button: str, mode: str = "ui") -> dict:
+    def click(self, ui: str | None, point, button: str, mode: str = "ui",
+              hold: float = 0.06) -> dict:
         hwnd, _text, cfg = self.hwnd()
         if ui:
             point = cfg["ui"].get(ui)
             if point is None:
                 raise RuntimeError(f"config.json 的 ui 里没有 {ui!r}")
         focus(hwnd)
-        r = click_client(hwnd, float(point[0]), float(point[1]), button=button, mode=mode)
+        r = click_client(hwnd, float(point[0]), float(point[1]), button=button,
+                         mode=mode, hold=float(hold))
         return {"clicked": ui or "point", "rel": list(point), "screen": r.get("target") or r.get("target_client"),
                 "cursor": r["cursor"], "mode": mode}
 
@@ -229,10 +231,12 @@ class Server:
         if cmd == "click":
             return {"ok": True, **g.click(req.get("ui"), req.get("point"),
                                          (req.get("button") or "left").lower(),
-                                         (req.get("mode") or "ui").lower())}
+                                         (req.get("mode") or "ui").lower(),
+                                         float(req.get("hold") or 0.06))}
         if cmd == "clickr":  # 对局世界点击：走相对移动（raw input），大厅界面别用
             return {"ok": True, **g.click(None, req.get("point"),
-                                         (req.get("button") or "right").lower(), "raw")}
+                                         (req.get("button") or "right").lower(), "raw",
+                                         float(req.get("hold") or 0.06))}
         if cmd == "rmove":
             move_rel(int(req.get("dx", 0)), int(req.get("dy", 0)))
             return {"ok": True, "dx": req.get("dx"), "dy": req.get("dy")}

@@ -75,24 +75,34 @@ def move_rel(dx: int, dy: int) -> None:
 
 
 def click_client_raw(hwnd: int, xr: float, yr: float, *, hold: float = 0.06,
-                     button: str = "right") -> dict:
-    """对局内世界点击：先把游戏内光标顶到左上角，再按像素量补到目标。
+                     button: str = "right", anchor: str = "br") -> dict:
+    """对局内世界点击：先把游戏内光标顶到一个角，再按像素量补到目标。
 
     为什么不能只 SetCursorPos：实测大厅 UI 吃绝对坐标，对局里 3D 世界层只认 raw input
     （SetCursorPos 的绝对移动它收不到），所以点了永远落在「它以为的位置」= 原地不动。
+    也不确定它自己的光标现在在哪，所以先朝一个角猛推把它顶死（多半会被夹到窗口边），
+    再从那个角按差值走回目标。
     """
     down, up = ((MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP) if button == "right"
                 else (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP))
     box = client_rect(hwnd)
-    tx = int(round(xr * box["width"]))
-    ty = int(round(yr * box["height"]))
-    for _ in range(3):  # 贴左上角（引擎会把内部光标夹到 0,0）
-        _send_mouse_rel(-1500, -1500)
-        time.sleep(0.012)
-    steps = 4
+    fw, fh = box["width"], box["height"]
+    tx = int(round(xr * fw))
+    ty = int(round(yr * fh))
+    if anchor == "br":  # 顶到右下角，再往回走
+        for _ in range(2):
+            _send_mouse_rel(4000, 3000)
+            time.sleep(0.015)
+        dx, dy = tx - fw, ty - fh
+    else:  # 顶到左上角
+        for _ in range(2):
+            _send_mouse_rel(-4000, -3000)
+            time.sleep(0.015)
+        dx, dy = tx, ty
+    steps = 6
     for i in range(steps):  # 分几步走，让引擎每帧都能累加到位
-        _send_mouse_rel(tx // steps + (1 if i == 0 else 0),
-                        ty // steps + (1 if i == 0 else 0))
+        _send_mouse_rel(dx // steps + (1 if i == 0 else 0),
+                        dy // steps + (1 if i == 0 else 0))
         time.sleep(0.012)
     time.sleep(0.04)
     _send_mouse(down)
@@ -101,7 +111,7 @@ def click_client_raw(hwnd: int, xr: float, yr: float, *, hold: float = 0.06,
     pt = wintypes.POINT()
     user32.GetCursorPos(ctypes.byref(pt))
     return {"target_client": (tx, ty), "cursor": (pt.x, pt.y), "box": box,
-            "button": button, "mode": "raw"}
+            "button": button, "mode": "raw", "anchor": anchor}
 
 
 def click_client(hwnd: int, xr: float, yr: float, *, hold: float = 0.05,
