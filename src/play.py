@@ -36,7 +36,15 @@ def emergency_stopped() -> bool:
 
 
 def find_red_bars(frame: np.ndarray) -> list[dict]:
-    """找敌方头顶血条：细长、高饱和的红条。坐标是整帧像素。"""
+    """找敌方头顶血条：细长、高饱和的红条。坐标是整帧像素。
+
+    剔掉 HUD 里的「假红条」：2026-11-19 对局里实测到，左侧「阶段面板」里也有红条状色块，
+    老版本没剔它，对局循环于是整场对着屏幕左缘 (208,731) 点了 38 拍。
+    HUD 固定占位（相对客户区，量自 2560×1440 帧）：
+      左侧阶段面板 x<0.155w 且 y 0.25~0.56h；右侧灵魂属性双面板 x>0.82w 且 y 0.38~0.56h；
+      顶部比分 y<0.10h；底部道具栏/技能栏 y>0.86h；右下小地图 x>0.88w 且 y>0.72h。
+    按矩形剔、不砍整列：语料 61 张对局帧对比过，中位数 1 / 最大 8 与老版本一致，只有 7 帧数量变化。
+    """
     h, w = frame.shape[:2]
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     hh, ss, vv = cv2.split(hsv)
@@ -56,11 +64,17 @@ def find_red_bars(frame: np.ndarray) -> list[dict]:
         if area < 0.5 * bw * bh:
             continue
         cx, cy = (float(v) for v in cents[i])
-        if cy < h * 0.10:                       # 顶栏计分板
+        # 左侧「阶段面板」：x<0.155w、y 0.25~0.56h，里面也有红条状色块
+        if cx < w * 0.155 and h * 0.25 < cy < h * 0.56:
+            continue
+        # 右侧「灵魂属性」双面板：x>0.82w、y 0.38~0.56h
+        if cx > w * 0.82 and h * 0.38 < cy < h * 0.56:
+            continue
+        if cy < h * 0.10:                       # 顶部比分/倒计时
+            continue
+        if cy > h * 0.86:                       # 底部道具栏与技能栏
             continue
         if cx > w * 0.88 and cy > h * 0.72:     # 右下小地图
-            continue
-        if cy > h * 0.92:                       # 底部技能栏
             continue
         out.append({"x": x, "y": y, "w": bw, "h": bh, "cx": cx, "cy": cy})
     return out
