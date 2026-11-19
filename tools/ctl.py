@@ -43,6 +43,16 @@ def build(argv: list[str]) -> dict:
             return {"cmd": "click", "point": [float(rest[1]), float(rest[2])],
                     "button": button}
         raise SystemExit("click 只支持：click ui <键名> / click at <x> <y> [left|right]")
+    if cmd == "clickr":
+        # clickr <x> <y> [left|right]：对局内世界点击，走相对移动（raw input）
+        if len(rest) < 2:
+            raise SystemExit("clickr 后面要跟 x y [left|right]（相对比例 0~1）")
+        button = rest[2] if len(rest) > 2 else "right"
+        return {"cmd": "clickr", "point": [float(rest[0]), float(rest[1])], "button": button}
+    if cmd == "rmove":
+        if len(rest) < 2:
+            raise SystemExit("rmove 后面要跟 dx dy（像素）")
+        return {"cmd": "rmove", "dx": int(rest[0]), "dy": int(rest[1])}
     if cmd == "key":
         if not rest:
             raise SystemExit("key 后面要跟键名（a/s/q/w/e/r/b/y/esc/enter…）")

@@ -36,7 +36,7 @@ from pathlib import Path
 import cv2
 
 from capture import _imwrite_unicode, enable_dpi_awareness, focus, grab
-from input import click_client, press_key
+from input import click_client, move_rel, press_key
 from launch import (ROOT, find_windows, fix_console, is_admin, load_config,
                     window_spec)
 from perceive import self_hp, self_position
@@ -96,16 +96,16 @@ class Game:
                 "log_tail": self.last_log[-6:]}
 
     # ---------- 动作 ----------
-    def click(self, ui: str | None, point, button: str) -> dict:
+    def click(self, ui: str | None, point, button: str, mode: str = "ui") -> dict:
         hwnd, _text, cfg = self.hwnd()
         if ui:
             point = cfg["ui"].get(ui)
             if point is None:
                 raise RuntimeError(f"config.json 的 ui 里没有 {ui!r}")
         focus(hwnd)
-        r = click_client(hwnd, float(point[0]), float(point[1]), button=button)
-        return {"clicked": ui or "point", "rel": list(point), "screen": r["target"],
-                "cursor": r["cursor"]}
+        r = click_client(hwnd, float(point[0]), float(point[1]), button=button, mode=mode)
+        return {"clicked": ui or "point", "rel": list(point), "screen": r.get("target") or r.get("target_client"),
+                "cursor": r["cursor"], "mode": mode}
 
     # ---------- 对局循环 ----------
     def start_play(self, duration: float, log: str | None, dry_run: bool = False) -> dict:
@@ -156,7 +156,8 @@ class Game:
                 elif bars:
                     t = bars[0]
                     if not dry_run:
-                        click_client(hwnd, t["cx"] / fw, (t["cy"] + 10) / fh, button="right")
+                        click_client(hwnd, t["cx"] / fw, (t["cy"] + 10) / fh, button="right",
+                                     mode="raw")
                     dist = abs(t["cx"] - fw / 2)
                     face = ""
                     if dist < fw * 0.18 and hp["ratio"] >= LOW_HP and not dry_run:
@@ -227,7 +228,14 @@ class Server:
             return {"ok": True, **g.shot(req.get("path") or "tmp/frame.png")}
         if cmd == "click":
             return {"ok": True, **g.click(req.get("ui"), req.get("point"),
-                                         (req.get("button") or "left").lower())}
+                                         (req.get("button") or "left").lower(),
+                                         (req.get("mode") or "ui").lower())}
+        if cmd == "clickr":  # 对局世界点击：走相对移动（raw input），大厅界面别用
+            return {"ok": True, **g.click(None, req.get("point"),
+                                         (req.get("button") or "right").lower(), "raw")}
+        if cmd == "rmove":
+            move_rel(int(req.get("dx", 0)), int(req.get("dy", 0)))
+            return {"ok": True, "dx": req.get("dx"), "dy": req.get("dy")}
         if cmd == "key":
             return {"ok": True, "vk": press_key(str(req.get("name"))), "name": req.get("name")}
         if cmd == "wait":
